@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: fct_pitches
+    description: Pitch-level fact table, incremental with a trailing re-process window for late Savant corrections.
+    columns:
+      - name: pitch_id
+        data_tests: [unique, not_null]
+      - name: pitcher_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_pitchers')
+                field: pitcher_id
+
+  - name: dim_pitchers
+    description: One row per pitcher with latest name, hand and team.
+    columns:
+      - name: pitcher_id
+        data_tests: [unique, not_null]
+      - name: pitcher_hand
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["R", "L"]
+
+  - name: mart_pitcher_arsenal
+    description: Season x pitcher x pitch type usage, velocity, movement and results.
+    columns:
+      - name: usage_pct
+        description: Share of the pitcher's season pitches (computed before the min_pitches filter).
+        data_tests: [not_null]
+      - name: whiff_pct
+        description: Whiffs / swings.
+      - name: csw_pct
+        description: (Called strikes + whiffs) / pitches.
+      - name: chase_pct
+        description: Swings at pitches outside the zone / pitches outside the zone.
+      - name: run_value_per_100
+        description: Pitcher run value per 100 pitches (positive = better for the pitcher).
+
+  - name: mart_pitch_movement
+    description: Pitch shape vs league average for the same pitch type, hand and season.
+    columns:
+      - name: ivb_vs_league_in
+        description: Induced vertical break minus the league average, inches.
+      - name: arm_side_vs_league_in
+        description: Arm-side break minus the league average, inches.
+
+  - name: mart_release_consistency
+    description: Release point repeatability and pitch-type tunneling per pitcher season.
+    columns:
+      - name: release_spread_in
+        description: sqrt(sd_x^2 + sd_z^2) of release point, inches. Smaller = more repeatable.
+        data_tests: [not_null]
+      - name: max_tunnel_gap_in
+        description: Largest distance between a secondary pitch's release centroid and the primary pitch's, inches.
+      - name: consistency_pctile
+        description: 1.0 = most consistent release in the season.
+
+  - name: mart_pitcher_game_trends
+    description: Per-game fastball velo and release height vs the pitcher's own prior-game baseline.
+    columns:
+      - name: velo_vs_baseline_mph
+        description: Game fastball velo minus the average of the pitcher's previous games this season.
+      - name: velo_drop_flag
+        description: True when velo is 1.5+ mph under baseline with at least 3 prior games.

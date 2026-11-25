@@ -1,0 +1,5 @@
+# Loader (also installed into the Airflow image, pinned by Airflow's constraints there)
+pandas>=2.2
+pyarrow>=16
+requests>=2.32
+psycopg[binary]>=3.2

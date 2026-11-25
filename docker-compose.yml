@@ -1,0 +1,61 @@
+# Local stack: one Postgres (Airflow metadata + the "statcast" warehouse) and
+# Airflow 3 in standalone mode (API server, scheduler, DAG processor, triggerer).
+#
+#   docker compose up -d --build        then open http://localhost:8080
+#
+# Defaults to the offline synthetic sample. Set STATCAST_SOURCE=savant in .env
+# to pull live data from Baseball Savant.
+
+x-airflow-env: &airflow-env
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: America/Chicago
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
+  # Local development only: every visitor is an admin, no login screen.
+  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+  WAREHOUSE_HOST: postgres
+  WAREHOUSE_PORT: "5432"
+  WAREHOUSE_DB: statcast
+  WAREHOUSE_USER: statcast
+  WAREHOUSE_PASSWORD: statcast
+  STATCAST_SOURCE: ${STATCAST_SOURCE:-sample}
+  STATCAST_LANDING_DIR: /opt/airflow/landing
+  STATCAST_SAMPLE_FILE: /opt/airflow/sample/statcast_sample.csv.gz
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-warehouse.sql:/docker-entrypoint-initdb.d/init-warehouse.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 10
+
+  airflow:
+    build: .
+    command: standalone
+    environment: *airflow-env
+    volumes:
+      - ./dags:/opt/airflow/dags:ro
+      - ./src:/opt/airflow/src:ro
+      - ./dbt:/opt/airflow/dbt:ro
+      - ./data/sample:/opt/airflow/sample:ro
+      - landing:/opt/airflow/landing
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  landing:

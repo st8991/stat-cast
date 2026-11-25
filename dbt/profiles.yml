@@ -1,0 +1,13 @@
+# Connection settings come from the same env vars the loader uses.
+statcast:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('WAREHOUSE_HOST', 'localhost') }}"
+      port: "{{ env_var('WAREHOUSE_PORT', '5432') | int }}"
+      dbname: "{{ env_var('WAREHOUSE_DB', 'statcast') }}"
+      user: "{{ env_var('WAREHOUSE_USER', 'statcast') }}"
+      password: "{{ env_var('WAREHOUSE_PASSWORD', 'statcast') }}"
+      schema: analytics
+      threads: 4

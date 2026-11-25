@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Pitch-level Statcast rows loaded by the Python loader (src/statcast_pipeline/load.py).
+    schema: raw
+    tables:
+      - name: statcast_pitches
+        description: One row per pitch, curated slice of the Baseball Savant CSV. Replaced a game date at a time.
+        loaded_at_field: _loaded_at
+        freshness:
+          # Only meaningful in season; off-season runs will warn, which is expected.
+          warn_after: {count: 36, period: hour}
+        columns:
+          - name: game_pk
+            data_tests: [not_null]
+          - name: game_date
+            data_tests: [not_null]
+          - name: pitcher
+            data_tests: [not_null]
+      - name: ingestion_log
+        description: One row per (game date, load). Audit trail for backfills and re-runs.

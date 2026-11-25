@@ -1,0 +1,62 @@
+version: 2
+
+models:
+  - name: stg_statcast__pitches
+    description: One cleaned row per tracked pitch, with units converted and outcome flags.
+    columns:
+      - name: pitch_id
+        description: "<game_pk>-<at_bat_number>-<pitch_number>"
+        data_tests: [unique, not_null]
+      - name: pitcher_id
+        data_tests: [not_null]
+      - name: pitcher_hand
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["R", "L"]
+      - name: batter_side
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["R", "L"]
+      - name: result_type
+        description: "B = ball, S = strike (incl. fouls), X = in play"
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["B", "S", "X"]
+      - name: arm_side_break_in
+        description: Horizontal break in inches from the pitcher's arm side (positive = arm side run).
+      - name: induced_vert_break_in
+        description: Vertical break in inches with gravity removed (Statcast pfx_z x 12).
+      - name: pitcher_run_value
+        description: Change in run expectancy on the pitch from the pitcher's side (positive = good for the pitcher).
+      - name: is_whiff
+        description: Swing and miss. Foul tips count as whiffs, matching Baseball Savant.
+
+unit_tests:
+  - name: test_stg_flags_and_arm_side_break
+    description: A lefty's and a righty's arm-side run both come out positive; whiff/CSW/chase flags follow the description.
+    model: stg_statcast__pitches
+    given:
+      - input: source('raw', 'statcast_pitches')
+        rows:
+          - {game_pk: 1, at_bat_number: 1, pitch_number: 1, game_date: "2025-06-01", pitch_type: FF, p_throws: R,
+             pfx_x: -0.5, pfx_z: 1.25, zone: 5, description: swinging_strike, inning_topbot: Top,
+             home_team: CHC, away_team: STL, delta_run_exp: 0.05}
+          - {game_pk: 1, at_bat_number: 1, pitch_number: 2, game_date: "2025-06-01", pitch_type: FF, p_throws: L,
+             pfx_x: 0.5, pfx_z: 1.25, zone: 13, description: foul, inning_topbot: Bot,
+             home_team: CHC, away_team: STL, delta_run_exp: -0.02}
+          - {game_pk: 1, at_bat_number: 1, pitch_number: 3, game_date: "2025-06-01", pitch_type: SL, p_throws: R,
+             pfx_x: 0.3, pfx_z: 0.1, zone: 12, description: ball, inning_topbot: Top,
+             home_team: CHC, away_team: STL, delta_run_exp: 0.03}
+          - {game_pk: 1, at_bat_number: 1, pitch_number: 4, game_date: "2025-06-01", pitch_type: null, p_throws: R,
+             description: automatic_ball, inning_topbot: Top, home_team: CHC, away_team: STL}
+    expect:
+      rows:
+        - {pitch_id: "1-1-1", arm_side_break_in: 6.0, induced_vert_break_in: 15.0, is_swing: true, is_whiff: true,
+           is_csw: true, is_chase: false, pitching_team: CHC, pitcher_run_value: -0.05}
+        - {pitch_id: "1-1-2", arm_side_break_in: 6.0, induced_vert_break_in: 15.0, is_swing: true, is_whiff: false,
+           is_csw: false, is_chase: true, pitching_team: STL, pitcher_run_value: 0.02}
+        - {pitch_id: "1-1-3", arm_side_break_in: -3.6, induced_vert_break_in: 1.2, is_swing: false, is_whiff: false,
+           is_csw: false, is_chase: false, pitching_team: CHC, pitcher_run_value: -0.03}

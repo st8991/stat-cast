@@ -1,0 +1,28 @@
+name: statcast
+version: "0.1.0"
+config-version: 2
+profile: statcast
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Pitcher-pitch types with fewer pitches than this are left out of the arsenal marts.
+  min_pitches: 10
+  # Incremental runs re-process this many trailing days, so late Savant corrections land.
+  lookback_days: 3
+
+models:
+  statcast:
+    +persist_docs:
+      relation: true
+      columns: true
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
