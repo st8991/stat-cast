@@ -1,4 +1,4 @@
-# statcast-pipeline
+# stat-cast
 
 A daily batch pipeline for MLB pitch-tracking data. Every morning Airflow pulls the previous day's pitch-level Statcast data from Baseball Savant, lands the raw file, loads it into Postgres, and runs dbt to rebuild tested pitcher models: arsenal, movement vs league, release consistency, and game-by-game velocity trends.
 
