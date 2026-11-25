@@ -1,0 +1,62 @@
+# Daily job: land files -> bronze -> silver -> gold -> quality checks.
+# No cluster is defined, so tasks run on serverless compute.
+resources:
+  jobs:
+    statcast_daily:
+      name: statcast-lakehouse-daily
+      description: Lands a day of Statcast pitch data and rebuilds the bronze, silver and gold Delta tables.
+      max_concurrent_runs: 1
+      tags:
+        project: statcast-lakehouse
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: source
+          default: sample # "savant" pulls live data from Baseball Savant
+        - name: start_date
+          default: "" # empty = yesterday (savant only)
+        - name: end_date
+          default: ""
+        - name: full_refresh
+          default: "false"
+        - name: min_pitches
+          default: "10"
+
+      # 9:00 AM Central, after the previous night's games are final. Paused in dev.
+      schedule:
+        quartz_cron_expression: "0 0 9 * * ?"
+        timezone_id: America/Chicago
+        pause_status: UNPAUSED
+
+      tasks:
+        - task_key: land_files
+          notebook_task:
+            notebook_path: ../notebooks/00_setup_and_land.py
+
+        - task_key: bronze
+          depends_on:
+            - task_key: land_files
+          # Auto Loader stops once when Savant adds a column; the retry picks up the new schema.
+          max_retries: 1
+          min_retry_interval_millis: 10000
+          notebook_task:
+            notebook_path: ../notebooks/01_bronze.py
+
+        - task_key: silver
+          depends_on:
+            - task_key: bronze
+          notebook_task:
+            notebook_path: ../notebooks/02_silver.py
+
+        - task_key: gold
+          depends_on:
+            - task_key: silver
+          notebook_task:
+            notebook_path: ../notebooks/03_gold.py
+
+        - task_key: quality_checks
+          depends_on:
+            - task_key: gold
+          notebook_task:
+            notebook_path: ../notebooks/04_quality_checks.py

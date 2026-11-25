@@ -1,0 +1,39 @@
+# Declarative Automation Bundle: runs the Statcast pipeline on Databricks.
+# The bundle root is the repo root so the notebooks in databricks/notebooks/ can import src/.
+# Docs: https://docs.databricks.com/aws/en/dev-tools/bundles/settings
+#
+# The workspace host is deliberately not in this file. Deploying from the workspace UI uses the
+# workspace you're in; the Databricks CLI uses your profile (`databricks auth login`).
+bundle:
+  name: statcast_lakehouse
+
+include:
+  - databricks/resources/*.yml
+
+sync:
+  # Only what the notebooks need: the Airflow, Postgres and dbt parts stay out of the workspace.
+  exclude:
+    - dags/**
+    - dbt/**
+    - docker/**
+    - scripts/**
+    - tests/**
+    - Dockerfile
+    - docker-compose.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds the statcast_bronze, statcast_silver and statcast_gold schemas.
+    default: workspace
+
+targets:
+  # Default. Resources get a "[dev <you>]" prefix and the schedule stays paused.
+  dev:
+    mode: development
+    default: true
+
+  # Shared copy that runs on the daily schedule.
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}

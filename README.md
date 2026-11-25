@@ -1,6 +1,8 @@
-# statcast-pipeline
+# stat-cast
 
 A daily batch pipeline for MLB pitch-tracking data. Every morning Airflow pulls the previous day's pitch-level Statcast data from Baseball Savant, lands the raw file, loads it into Postgres, and runs dbt to rebuild tested pitcher models: arsenal, movement vs league, release consistency, and game-by-game velocity trends.
+
+The same pipeline also runs on **Databricks** as a medallion lakehouse: Auto Loader into bronze Delta, `MERGE` into silver, the dbt marts ported to Spark SQL in gold, deployed as a bundle job on serverless. See [databricks/README.md](databricks/README.md).
 
 It's the data engineering companion to [baseball-pitching-scout](https://github.com/st8991/baseball-pitching-scout), which studies one pitcher at a time from a local DuckDB file. This project is the shared, league-wide warehouse a tool like that would read from.
 
@@ -96,7 +98,7 @@ Tests: `unique`/`not_null`/`accepted_values`/`relationships` on keys, a **dbt un
 
 ### Tests and CI
 
-`pytest` covers the transform contract, retry and truncation logic, off-day handling, load idempotency against a real Postgres (each test runs in a throwaway schema; skipped when no database is reachable), and DAG integrity (no import errors, expected task graph, retries on every task). GitHub Actions runs ruff, pytest, the sample backfill and `dbt build` twice (full, then incremental) against a Postgres service, plus the DAG checks in a separate Airflow job.
+`pytest` covers the transform contract, retry and truncation logic, off-day handling, load idempotency against a real Postgres (each test runs in a throwaway schema; skipped when no database is reachable), and DAG integrity (no import errors, expected task graph, retries on every task). GitHub Actions runs ruff, pytest, the sample backfill and `dbt build` twice (full, then incremental) against a Postgres service, plus the DAG checks in a separate Airflow job and the Databricks transforms on PySpark 3.5 and 4.0.
 
 ## The sample data is synthetic
 
@@ -112,9 +114,11 @@ dbt/models/marts/                fact, dimension and pitcher marts
 dbt/tests/                       singular data tests
 dbt/analyses/                    example queries
 scripts/make_sample.py           synthetic sample generator
-tests/                           pytest suites
+tests/                           pytest suites (tests/lakehouse: PySpark)
+databricks.yml, databricks/      Databricks bundle, job and notebooks
+src/statcast_lakehouse/          bronze, silver, gold and checks for Databricks
 docker-compose.yml, Dockerfile   local Postgres + Airflow 3 stack
-.github/workflows/ci.yml         lint, tests, dbt build, DAG checks
+.github/workflows/ci.yml         lint, tests, dbt build, DAG checks, Spark tests
 ```
 
 ## Known limits and next steps

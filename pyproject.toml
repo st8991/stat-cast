@@ -1,7 +1,7 @@
 [project]
 name = "statcast-pipeline"
 version = "0.1.0"
-description = "Daily Statcast pipeline: Baseball Savant -> Postgres -> dbt, orchestrated by Airflow"
+description = "Daily Statcast pipeline: Baseball Savant -> Postgres -> dbt on Airflow, and a Delta lakehouse on Databricks"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
@@ -15,3 +15,7 @@ extend-exclude = ["dbt"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Databricks notebooks: spark, dbutils and display are provided by the runtime; imports follow %run.
+"databricks/notebooks/*.py" = ["F821", "E402", "I001"]

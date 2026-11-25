@@ -1,0 +1,6 @@
+# Local tests for the Databricks pipeline (databricks/, src/statcast_lakehouse). Needs Java 17+.
+# On Databricks itself nothing extra is installed: serverless already has PySpark, pandas and requests.
+pyspark>=3.5,<4.1
+pandas>=2.2
+requests>=2.32
+pytest>=8

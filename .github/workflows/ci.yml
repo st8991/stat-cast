@@ -53,3 +53,24 @@ jobs:
       - run: pytest -q tests/test_dag.py
         env:
           AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+
+  lakehouse:
+    name: Databricks lakehouse transforms on Spark ${{ matrix.pyspark }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pyspark: ["3.5.3", "4.0.1"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements-lakehouse.txt "pyspark==${{ matrix.pyspark }}"
+      - name: bronze, silver, gold and quality checks on the sample week
+        run: pytest -q tests/lakehouse
