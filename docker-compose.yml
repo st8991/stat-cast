@@ -1,7 +1,9 @@
-# Local stack: one Postgres (Airflow metadata + the "statcast" warehouse) and
-# Airflow 3 in standalone mode (API server, scheduler, DAG processor, triggerer).
+# Local stack: one Postgres (Airflow metadata + the "statcast" warehouse),
+# Airflow 3 in standalone mode (API server, scheduler, DAG processor, triggerer),
+# and the stat-cast dashboard.
 #
-#   docker compose up -d --build        then open http://localhost:8080
+#   docker compose up -d --build        then open http://localhost:8080 (Airflow)
+#                                        and http://localhost:8050 (dashboard)
 #
 # Defaults to the offline synthetic sample. Set STATCAST_SOURCE=savant in .env
 # to pull live data from Baseball Savant.
@@ -52,6 +54,26 @@ services:
       - landing:/opt/airflow/landing
     ports:
       - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard.Dockerfile
+    environment:
+      WAREHOUSE_HOST: postgres
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_DB: statcast
+      WAREHOUSE_USER: statcast
+      WAREHOUSE_PASSWORD: statcast
+      # Read-only view of the latest DAG runs, straight from Airflow's metadata DB.
+      AIRFLOW_DB_DSN: host=postgres port=5432 dbname=airflow user=airflow password=airflow
+    volumes:
+      - ./src:/app/src:ro
+    ports:
+      - "8050:8050"
     depends_on:
       postgres:
         condition: service_healthy

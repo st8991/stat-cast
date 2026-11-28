@@ -48,6 +48,8 @@ from marts.mart_pitcher_arsenal
 order by pitcher_name, usage_pct desc;
 ```
 
+Then open the dashboard at **http://localhost:8050**.
+
 To pull real data, set `STATCAST_SOURCE=savant` in `.env` (copy `.env.example`), restart, and unpause `statcast_daily` in the UI, or backfill a range:
 
 ```bash
@@ -73,6 +75,29 @@ PYTHONPATH=src python -m statcast_pipeline --source sample backfill --start 2025
 DBT_PROFILES_DIR=dbt dbt build --project-dir dbt
 pytest -q
 ```
+
+## Dashboard
+
+![stat-cast dashboard](docs/dashboard/dashboard-dark.png)
+
+One screen over the warehouse and the pipeline that feeds it (`src/statcast_dashboard/`):
+
+- **Pitchers**: searchable roster with a fastball-velo sparkline per pitcher and a flag on anyone with a velo drop.
+- **Pitch movement**: every pitch by induced vertical break and arm-side break, with each pitch type's average linked to the league average for the same type and hand (`mart_pitch_movement`).
+- **Release point**: the release cloud in a fixed ±9 in window with its 1 SD ellipse (`mart_release_consistency`), so spreads compare across pitchers.
+- **Fastball velo by game**: each game against the average of prior games, with the 1.5 mph drop flag (`mart_pitcher_game_trends`).
+- **Arsenal**: usage, velo, spin, movement vs league, whiff, CSW, zone, chase, xwOBA on contact and run value per 100 (`mart_pitcher_arsenal`).
+- **Pipeline**: the last 14 `statcast_daily` runs task by task (off days show as skipped), time since the last load against the 36 h freshness threshold, pitches landed per game date and row counts for every table.
+- **Velo alerts** and **league leaders** (velo, ride, whiff, tightest release). Click any name to open that pitcher.
+
+It's a small read-only FastAPI app plus a buildless HTML/SVG frontend; there's nothing to compile. It reads the warehouse with the same `WAREHOUSE_*` settings as the loader. DAG runs come straight from Airflow's metadata database when `AIRFLOW_DB_DSN` is set (Docker Compose sets it); without it the pipeline panel still shows the warehouse side.
+
+```bash
+make dashboard            # against WAREHOUSE_* from your shell, http://localhost:8050
+make dashboard-export     # dist/dashboard: the frontend + a JSON snapshot, for static hosting
+```
+
+The export writes the same `api/*.json` paths the live app serves, so the snapshot can go on GitHub Pages or any file host and look exactly like the live app did. Light and dark themes follow the OS, with a toggle in the top bar.
 
 ## How it works
 
@@ -126,7 +151,8 @@ scripts/make_sample.py           synthetic sample generator
 tests/                           pytest suites (tests/lakehouse: PySpark)
 databricks.yml, databricks/      Databricks bundle, job and notebooks
 src/statcast_lakehouse/          bronze, silver, gold and checks for Databricks
-docker-compose.yml, Dockerfile   local Postgres + Airflow 3 stack
+src/statcast_dashboard/          dashboard API, static export and frontend (static/)
+docker-compose.yml, Dockerfile   local Postgres + Airflow 3 + dashboard stack
 .github/workflows/ci.yml         lint, tests, dbt build, DAG checks, Spark tests
 ```
 

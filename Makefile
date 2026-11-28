@@ -1,4 +1,4 @@
-.PHONY: up down logs backfill psql sample test dbt lint
+.PHONY: up down logs backfill psql sample test dbt lint dashboard dashboard-export
 
 up:            ## start Postgres + Airflow at http://localhost:8080
 	docker compose up -d --build
@@ -28,3 +28,9 @@ dbt:           ## dbt build against WAREHOUSE_* from your shell
 
 lint:
 	ruff check .
+
+dashboard:     ## run the dashboard against WAREHOUSE_* from your shell, http://localhost:8050
+	PYTHONPATH=src uvicorn statcast_dashboard.app:app --reload --port 8050
+
+dashboard-export: ## write the dashboard + a JSON snapshot of the warehouse to dist/dashboard (static hosting)
+	PYTHONPATH=src python -m statcast_dashboard.export --out dist/dashboard
