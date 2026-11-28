@@ -18,6 +18,11 @@ class Settings:
     warehouse_password: str = os.getenv("WAREHOUSE_PASSWORD", "statcast")
     # "savant" pulls live data; "sample" replays the synthetic fixture offline.
     source: str = os.getenv("STATCAST_SOURCE", "savant")
+    # Comma-separated: any of "regular", "postseason", "spring".
+    game_types: str = os.getenv("STATCAST_GAME_TYPES", "regular")
+    # A scheduled run re-pulls this many trailing game dates so Savant's late corrections land.
+    # Keep it at or below dbt's lookback_days + 1, so fct_pitches re-processes every refreshed day.
+    refresh_days: int = int(os.getenv("STATCAST_REFRESH_DAYS", "3"))
     landing_dir: Path = Path(os.getenv("STATCAST_LANDING_DIR", PROJECT_ROOT / "data" / "landing"))
     sample_file: Path = Path(
         os.getenv("STATCAST_SAMPLE_FILE", PROJECT_ROOT / "data" / "sample" / "statcast_sample.csv.gz")

@@ -44,3 +44,24 @@ def test_loading_one_day_leaves_other_days_alone(pg_conn, monkeypatch, sample_fi
     assert _count(conn, f"select count(*) from {schema}.statcast_pitches") == len(df) - (
         (df["game_date"].astype(str) == "2025-06-03").sum() - 5
     )
+
+
+def test_a_refresh_window_replaces_every_day_in_it(pg_conn, monkeypatch, sample_file, tmp_path):
+    conn, schema = pg_conn
+    _use_schema(monkeypatch, schema)
+    raw = pd.read_csv(sample_file)
+    load.load_frame(conn, conform(raw), source="test")
+
+    # Savant "revises" two days: a re-pull returns fewer pitches for each.
+    paths = []
+    for d in ("2025-06-02", "2025-06-03"):
+        path = tmp_path / f"{d}.csv.gz"
+        raw[raw["game_date"] == d].head(7).to_csv(path, index=False)
+        paths.append(path)
+    assert load.load_landed_files(conn, paths, source="test") == 14
+
+    for d in ("2025-06-02", "2025-06-03"):
+        assert _count(conn, f"select count(*) from {schema}.statcast_pitches where game_date = '{d}'") == 7
+    assert _count(conn, f"select count(*) from {schema}.statcast_pitches where game_date = '2025-06-04'") == (
+        raw["game_date"] == "2025-06-04"
+    ).sum()

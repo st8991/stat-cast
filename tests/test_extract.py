@@ -35,6 +35,13 @@ def test_params_ask_for_one_regular_season_day():
     assert p["hfGT"] == "R|" and p["type"] == "details"
 
 
+def test_game_types_reach_the_savant_request(monkeypatch, tmp_path):
+    session = FakeSession([FakeResponse(200, b"")])
+    settings = replace(Settings(), source="savant", landing_dir=tmp_path, game_types="regular,postseason")
+    extract.extract_day(date(2025, 10, 20), settings, session=session)
+    assert session.calls[0]["hfGT"] == "R|F|D|L|W|"
+
+
 def test_transient_errors_are_retried(monkeypatch):
     monkeypatch.setattr(extract.time, "sleep", lambda s: None)
     session = FakeSession([FakeResponse(503), FakeResponse(200, b"game_pk\n1\n")])

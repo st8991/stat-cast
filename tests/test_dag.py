@@ -23,7 +23,8 @@ def test_no_import_errors(dagbag):
 def test_statcast_daily_shape(dagbag):
     dag = dagbag.dags.get("statcast_daily")
     assert dag is not None
-    assert set(dag.task_ids) == {"resolve_game_date", "extract", "has_pitches", "load", "dbt_build"}
+    assert set(dag.task_ids) == {"resolve_dates", "in_season", "extract", "has_pitches", "load", "dbt_build"}
+    assert dag.get_task("extract").upstream_task_ids == {"resolve_dates", "in_season"}
     assert dag.get_task("load").upstream_task_ids == {"extract", "has_pitches"}
     assert dag.get_task("dbt_build").upstream_task_ids == {"load"}
     assert dag.catchup is False and dag.max_active_runs == 3

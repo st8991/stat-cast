@@ -7,11 +7,15 @@
 # MAGIC
 # MAGIC - `source = sample` (default): splits the synthetic sample week in `data/sample/` into daily files,
 # MAGIC   so the whole pipeline runs with no network access.
-# MAGIC - `source = savant`: pulls each day from `start_date` to `end_date` from Baseball Savant
-# MAGIC   (defaults to yesterday) with the same client the Airflow pipeline uses (`statcast_pipeline.extract`).
-# MAGIC   Needs outbound internet from your compute.
+# MAGIC - `source = savant`: pulls from Baseball Savant with the same client the Airflow pipeline uses
+# MAGIC   (`statcast_pipeline.extract`), for the game types in `game_types`. Needs outbound internet from your compute.
+# MAGIC   - With `start_date` / `end_date`: a backfill of that range. Days already landed are skipped.
+# MAGIC   - Without them (the daily run): re-pulls the last `refresh_days` days ending yesterday, because Savant
+# MAGIC     corrects pitch types and run values after the fact. A day whose data changed lands as a new version
+# MAGIC     (`statcast_YYYY-MM-DD__<pull time>.csv.gz`); silver keeps the newest. Outside the season window for
+# MAGIC     `game_types` it skips Savant entirely.
 # MAGIC
-# MAGIC A day that's already landed is skipped, so re-running is safe.
+# MAGIC Re-running is safe: an unchanged day is never landed twice.
 
 # COMMAND ----------
 
@@ -27,27 +31,12 @@ print("landing dir:", names.landing_dir)
 
 # COMMAND ----------
 
-import gzip
 from datetime import date, timedelta
 
 import pandas as pd
 
-from statcast_lakehouse.config import landing_file_name
-
-
-def write_landed(game_date: str, csv_text: str) -> str:
-    """Write one day's raw CSV to the volume. Write to a temp name first so a half-written file never looks landed."""
-    path = os.path.join(names.landing_dir, landing_file_name(game_date))
-    tmp = path + ".tmp"
-    with gzip.open(tmp, "wt", encoding="utf-8", newline="") as fh:
-        fh.write(csv_text)
-    os.replace(tmp, path)
-    return path
-
-
-def already_landed(game_date: str) -> bool:
-    return os.path.exists(os.path.join(names.landing_dir, landing_file_name(game_date)))
-
+from statcast_lakehouse.landing import landed_versions, write_landed
+from statcast_pipeline.season import any_in_season, parse_game_types, refresh_dates
 
 landed, skipped = [], []
 
@@ -55,35 +44,50 @@ if SOURCE == "sample":
     sample_path = os.path.join(REPO_ROOT, "data", "sample", "statcast_sample.csv.gz")
     sample = pd.read_csv(sample_path, dtype=str, keep_default_na=False)
     for game_date, day in sample.groupby("game_date"):
-        if already_landed(game_date):
+        if landed_versions(names.landing_dir, game_date):
             skipped.append(game_date)
             continue
-        write_landed(game_date, day.to_csv(index=False))
+        write_landed(names.landing_dir, game_date, day.to_csv(index=False))
         landed.append(game_date)
 
 elif SOURCE == "savant":
     from statcast_pipeline.extract import SAVANT_ROW_CAP, TruncatedResultError, fetch_savant_csv, parse_csv
 
-    yesterday = date.today() - timedelta(days=1)
-    start = date.fromisoformat(dbutils.widgets.get("start_date") or yesterday.isoformat())
-    end = date.fromisoformat(dbutils.widgets.get("end_date") or start.isoformat())
-    if end < start:
-        raise ValueError(f"end_date {end} is before start_date {start}")
-    for i in range((end - start).days + 1):
-        d = start + timedelta(days=i)
-        if already_landed(d.isoformat()):
+    game_types = ",".join(parse_game_types(dbutils.widgets.get("game_types")))
+    start_arg, end_arg = dbutils.widgets.get("start_date").strip(), dbutils.widgets.get("end_date").strip()
+
+    if start_arg or end_arg:
+        # Backfill: an explicit range. Days already landed are skipped, to stay polite to Savant.
+        start = date.fromisoformat(start_arg or end_arg)
+        end = date.fromisoformat(end_arg or start_arg)
+        if end < start:
+            raise ValueError(f"end_date {end} is before start_date {start}")
+        dates = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+        refresh = False
+    else:
+        # Daily run: re-pull the trailing window so Savant's corrections land; skip the off-season.
+        dates = refresh_dates(date.today() - timedelta(days=1), int(dbutils.widgets.get("refresh_days") or 3))
+        refresh = True
+        if not any_in_season(dates, game_types):
+            print(f"{dates[0]}..{dates[-1]}: off-season for {game_types}, not calling Savant")
+            dates = []
+
+    for d in dates:
+        if not refresh and landed_versions(names.landing_dir, d.isoformat()):
             skipped.append(d.isoformat())
             continue
-        day = parse_csv(fetch_savant_csv(d))
+        day = parse_csv(fetch_savant_csv(d, game_types=game_types))
         if len(day) >= SAVANT_ROW_CAP:
             raise TruncatedResultError(f"{d}: {len(day)} rows hits the Savant cap; split the query")
         if day.empty:
             print(f"{d}: no pitches (off day)")
             continue
-        write_landed(d.isoformat(), day.to_csv(index=False))
-        landed.append(d.isoformat())
+        if write_landed(names.landing_dir, d.isoformat(), day.to_csv(index=False)):
+            landed.append(d.isoformat())
+        else:
+            skipped.append(d.isoformat())  # re-pulled, unchanged since the last landing
 else:
     raise ValueError(f"Unknown source {SOURCE!r}")
 
 print(f"landed {len(landed)} day(s): {landed}")
-print(f"skipped {len(skipped)} already-landed day(s): {skipped}")
+print(f"skipped {len(skipped)} already-landed or unchanged day(s): {skipped}")

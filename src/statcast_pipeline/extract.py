@@ -19,12 +19,13 @@ import pandas as pd
 import requests
 
 from .config import Settings
+from .season import GAME_TYPE_CODES, hf_gt
 
 log = logging.getLogger(__name__)
 
 SAVANT_CSV_URL = "https://baseballsavant.mlb.com/statcast_search/csv"
 SAVANT_ROW_CAP = 25_000
-GAME_TYPES = {"regular": "R|", "postseason": "F|D|L|W|", "spring": "S|"}
+GAME_TYPES = GAME_TYPE_CODES  # kept for backwards compatibility
 
 
 class TruncatedResultError(RuntimeError):
@@ -32,6 +33,7 @@ class TruncatedResultError(RuntimeError):
 
 
 def savant_params(game_date: date, game_types: str = "regular") -> dict[str, str]:
+    """Query parameters for one game date. game_types is comma-separated, e.g. "regular,postseason"."""
     d = game_date.isoformat()
     return {
         "all": "true",
@@ -39,7 +41,7 @@ def savant_params(game_date: date, game_types: str = "regular") -> dict[str, str
         "player_type": "pitcher",
         "game_date_gt": d,
         "game_date_lt": d,
-        "hfGT": GAME_TYPES[game_types],
+        "hfGT": hf_gt(game_types),
     }
 
 
@@ -49,13 +51,14 @@ def fetch_savant_csv(
     retries: int = 4,
     backoff_seconds: float = 5.0,
     timeout: float = 120.0,
+    game_types: str = "regular",
 ) -> bytes:
     """Return the raw CSV bytes for one game date, retrying transient failures."""
     session = session or requests.Session()
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            resp = session.get(SAVANT_CSV_URL, params=savant_params(game_date), timeout=timeout)
+            resp = session.get(SAVANT_CSV_URL, params=savant_params(game_date, game_types), timeout=timeout)
             if resp.status_code in (429, 500, 502, 503, 504):
                 raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
             resp.raise_for_status()
@@ -98,7 +101,7 @@ def extract_day(
     if settings.source == "sample":
         df = read_sample(settings.sample_file, game_date)
     elif settings.source == "savant":
-        df = parse_csv(fetch_savant_csv(game_date, session=session))
+        df = parse_csv(fetch_savant_csv(game_date, session=session, game_types=settings.game_types))
     else:
         raise ValueError(f"Unknown STATCAST_SOURCE {settings.source!r}")
 
