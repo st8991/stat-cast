@@ -64,7 +64,8 @@ A scheduled run loads the `STATCAST_REFRESH_DAYS` game dates (default 3) ending 
 | `STATCAST_SOURCE` | `savant` (`sample` in `.env.example`) | `sample` replays the synthetic week offline; `savant` pulls live data |
 | `STATCAST_GAME_TYPES` | `regular` | Comma-separated: `regular`, `postseason`, `spring`. Picks Savant's game-type filter and the season window. The CLI takes `--game-types`. |
 | `STATCAST_REFRESH_DAYS` | `3` | Trailing game dates a scheduled run re-pulls. Keep it at or below dbt's `lookback_days` + 1. |
-| `WAREHOUSE_HOST`, `_PORT`, `_DB`, `_USER`, `_PASSWORD` | the Compose Postgres | Where the loader and dbt write. Point them at a managed Postgres to feed the Cloudflare site. |
+| `WAREHOUSE_URL`, `DATABASE_URL_UNPOOLED`, `DATABASE_URL` | unset | A connection URL, first one set wins, overriding the fields below. `neon env pull` writes the last two; the loader and dbt use the direct (unpooled) one. |
+| `WAREHOUSE_HOST`, `_PORT`, `_DB`, `_USER`, `_PASSWORD` | the Compose Postgres | Where the loader and dbt write when no URL is set. |
 | `WAREHOUSE_SSLMODE` | `prefer` | Set `require` for a managed Postgres. |
 
 ### Without Docker
@@ -100,7 +101,7 @@ make web-test             # typecheck + vitest
 make deploy               # OpenNext build + deploy to Cloudflare (setup steps in web/README.md)
 ```
 
-To put it on Cloudflare, point the pipeline at a managed Postgres (`WAREHOUSE_HOST`, `WAREHOUSE_SSLMODE=require`, ... in `.env`), create a Hyperdrive config for it and deploy. [`web/README.md`](web/README.md) has the steps.
+The production warehouse is a Neon project linked from the repo root (`neon.ts`). `neon env pull` writes its URLs to `.env.local`, and the pipeline, Compose and `npm run dev` all pick them up from there. Then create a Hyperdrive config for it and deploy. [`web/README.md`](web/README.md) has the steps.
 
 ## How it works
 
@@ -155,6 +156,7 @@ tests/                           pytest suites (tests/lakehouse: PySpark)
 databricks.yml, databricks/      Databricks bundle, job and notebooks
 src/statcast_lakehouse/          bronze, silver, gold and checks for Databricks
 web/                             dashboard: Next.js + TypeScript on Cloudflare Workers
+neon.ts, package.json            Neon project policy for `neon deploy` (the CLI's own config)
 docker-compose.yml, Dockerfile   local Postgres + Airflow 3 + web app stack
 .github/workflows/ci.yml         lint, tests, dbt build, DAG checks, Spark tests
 ```

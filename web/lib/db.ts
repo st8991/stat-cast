@@ -3,7 +3,8 @@
 // On Cloudflare the warehouse is reached through Hyperdrive (binding HYPERDRIVE),
 // which pools connections near the database and hands the Worker a connection
 // string. Anywhere else (`next dev`, `next start`, tests) it falls back to
-// DATABASE_URL, or to the same WAREHOUSE_* settings the Python loader uses.
+// DATABASE_URL (Neon's pooled URL, from `neon env pull`), or to the same
+// WAREHOUSE_* settings the Python loader uses.
 //
 // The Airflow metadata database is optional: binding AIRFLOW_HYPERDRIVE on
 // Cloudflare, AIRFLOW_DATABASE_URL elsewhere. Without it the pipeline panel

@@ -11,8 +11,8 @@
   "observability": { "enabled": true },
   "hyperdrive": [
     {
-      // The warehouse (managed Postgres the pipeline loads into). Create with:
-      //   npx wrangler hyperdrive create stat-cast-warehouse --connection-string="postgres://..."
+      // The warehouse: the Neon project the pipeline loads into. Create with
+      //   npx wrangler hyperdrive create stat-cast-warehouse --connection-string="<Neon direct URL>"
       // and paste the id it prints here. See web/README.md.
       "binding": "HYPERDRIVE",
       "id": "00000000000000000000000000000000",

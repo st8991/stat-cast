@@ -12,3 +12,8 @@ logs/
 dbt/.user.yml
 .databricks/
 dist/
+.neon
+node_modules/
+.env.local
+.env.*
+!.env.example

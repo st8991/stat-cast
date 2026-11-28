@@ -24,7 +24,7 @@ test:          ## Python tests (Postgres tests run if WAREHOUSE_* points at a da
 	pytest -q
 
 dbt:           ## dbt build against WAREHOUSE_* from your shell
-	DBT_PROFILES_DIR=dbt dbt build --project-dir dbt
+	eval "$$(PYTHONPATH=src python -m statcast_pipeline warehouse-env)" && DBT_PROFILES_DIR=dbt dbt build --project-dir dbt
 
 lint:
 	ruff check .

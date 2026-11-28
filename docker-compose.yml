@@ -16,8 +16,9 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
   # Local development only: every visitor is an admin, no login screen.
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
-  # Defaults to the warehouse in this stack. Point WAREHOUSE_* at a managed Postgres
-  # (in .env) to load the database the Cloudflare site reads through Hyperdrive.
+  # Defaults to the warehouse in this stack. A DATABASE_URL_UNPOOLED from Neon (see
+  # env_file below) or WAREHOUSE_* in .env point the pipeline at a managed Postgres,
+  # the database the Cloudflare site reads through Hyperdrive.
   WAREHOUSE_HOST: ${WAREHOUSE_HOST:-postgres}
   WAREHOUSE_PORT: ${WAREHOUSE_PORT:-5432}
   WAREHOUSE_DB: ${WAREHOUSE_DB:-statcast}
@@ -48,6 +49,14 @@ services:
   airflow:
     build: .
     command: standalone
+    # Neon: `neon env pull` writes DATABASE_URL / DATABASE_URL_UNPOOLED to one of
+    # these. When present, the loader and dbt use the direct URL and the web app
+    # the pooled one, instead of the Postgres container.
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     environment: *airflow-env
     volumes:
       - ./dags:/opt/airflow/dags:ro
@@ -63,6 +72,14 @@ services:
 
   web:
     build: ./web
+    # Neon: `neon env pull` writes DATABASE_URL / DATABASE_URL_UNPOOLED to one of
+    # these. When present, the loader and dbt use the direct URL and the web app
+    # the pooled one, instead of the Postgres container.
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     environment:
       WAREHOUSE_HOST: ${WAREHOUSE_HOST:-postgres}
       WAREHOUSE_PORT: ${WAREHOUSE_PORT:-5432}

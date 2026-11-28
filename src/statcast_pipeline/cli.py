@@ -4,6 +4,7 @@
     python -m statcast_pipeline run --date 2025-06-01
     python -m statcast_pipeline backfill --start 2025-06-01 --end 2025-06-07 --source sample
     python -m statcast_pipeline --game-types postseason backfill --start 2025-10-01 --end 2025-11-02
+    eval "$(python -m statcast_pipeline warehouse-env)" && dbt build ...   # dbt on the same database
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init-db", help="create the raw schema and tables")
+    sub.add_parser("warehouse-env", help="print export lines of the resolved WAREHOUSE_* settings (for dbt)")
     run = sub.add_parser("run", help="extract and load one game date")
     run.add_argument("--date", type=date.fromisoformat, required=True)
     bf = sub.add_parser("backfill", help="extract and load an inclusive date range")
@@ -52,7 +54,9 @@ def main(argv: list[str] | None = None) -> None:
         parse_game_types(args.game_types)  # fail fast on a typo
         settings = replace(settings, game_types=args.game_types)
 
-    if args.cmd == "init-db":
+    if args.cmd == "warehouse-env":
+        print(settings.shell_exports())
+    elif args.cmd == "init-db":
         with psycopg.connect(settings.dsn) as conn:
             ensure_schema(conn)
         print("raw schema ready")
