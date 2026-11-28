@@ -18,6 +18,10 @@ resources:
           default: "" # empty = yesterday (savant only)
         - name: end_date
           default: ""
+        - name: game_types
+          default: regular # comma-separated: regular, postseason, spring
+        - name: refresh_days
+          default: "3" # daily runs re-pull this many trailing days so Savant's corrections land
         - name: full_refresh
           default: "false"
         - name: min_pitches

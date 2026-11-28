@@ -49,13 +49,15 @@ Everything defaults to the `workspace` catalog and the synthetic sample week com
   databricks bundle run statcast_daily
   ```
 
-**Real data:** run the job (or notebook 00) with `source = savant`, plus `start_date` / `end_date` for a backfill (both empty means yesterday). Your compute needs outbound internet access to `baseballsavant.mlb.com`.
+**Real data:** run the job (or notebook 00) with `source = savant`, plus `start_date` / `end_date` for a backfill. With both empty (the daily run) it re-pulls the last `refresh_days` days ending yesterday so Savant's corrections land, and skips Savant entirely in the off-season. Your compute needs outbound internet access to `baseballsavant.mlb.com`.
 
 | Job parameter | Default | Meaning |
 |---|---|---|
 | `catalog` | `workspace` | Catalog for the three schemas and the volume |
 | `source` | `sample` | `sample` replays the committed week; `savant` pulls live data |
-| `start_date`, `end_date` | empty | Savant date range, `YYYY-MM-DD` |
+| `start_date`, `end_date` | empty | Savant backfill range, `YYYY-MM-DD`; days already landed are skipped |
+| `game_types` | `regular` | Comma-separated: `regular`, `postseason`, `spring` |
+| `refresh_days` | `3` | Daily runs (no dates) re-pull this many trailing days |
 | `full_refresh` | `false` | Rebuild silver from all of bronze instead of only new rows |
 | `min_pitches` | `10` | Pitch types thrown fewer times are left out of the marts |
 
@@ -63,7 +65,7 @@ Everything defaults to the `workspace` catalog and the synthetic sample week com
 
 | Layer | Notebook | What it does |
 |---|---|---|
-| Landing | `00_setup_and_land` | Creates the schemas and volume, then writes one raw CSV per game date (`statcast_YYYY-MM-DD.csv.gz`). Live pulls use the same Savant client as the Airflow DAG. Writes to a temp name and renames, so a half-written file never looks landed. Days already landed are skipped. Savant caps a query at 25,000 rows, so a day that hits the cap fails instead of landing partial data. |
+| Landing | `00_setup_and_land` | Creates the schemas and volume, then writes one raw CSV per game date (`statcast_YYYY-MM-DD.csv.gz`). Live pulls use the same Savant client as the Airflow DAG. Writes to a temp name and renames, so a half-written file never looks landed. The daily run re-pulls the trailing `refresh_days`; a day whose data changed lands as a new version (`statcast_YYYY-MM-DD__<pull time>.csv.gz`, since Auto Loader reads each file name once) and an unchanged one isn't landed again. Backfill ranges skip days already landed. Off-season daily runs don't call Savant. Savant caps a query at 25,000 rows, so a day that hits the cap fails instead of landing partial data. |
 | Bronze | `01_bronze` | Auto Loader with `availableNow`: only new files are read, every column stays a string, and each row records its source file and ingest time. Header names are made Delta-safe (`pitcher.1` becomes `pitcher_1`). When Savant adds a column, Auto Loader evolves the schema and the task's retry picks it up. |
 | Silver | `02_silver` | Types the loader's 45-column contract (values that won't parse become NULL, not errors), drops rows without a full key or without tracking, keeps the newest version of a re-issued pitch, converts movement to inches, adds arm-side break and swing/whiff/CSW/chase flags. `MERGE` on `pitch_id`, so re-landing a corrected day updates rows instead of duplicating them. Liquid clustered on `game_date, pitcher_id`. |
 | Gold | `03_gold` | Rebuilds five tables from silver with Spark SQL ported from the stat-cast dbt models. |
@@ -94,3 +96,4 @@ tests/lakehouse/                 PySpark tests on the sample week
 
 - The sample data is the same synthetic week the Airflow pipeline uses; its numbers describe no real player.
 - Gold is a full rebuild each run. The marts are small; if they grow, `mart_pitcher_game_trends` is the first candidate for an incremental `MERGE` by game date.
+- A corrected day updates or adds pitches in silver, but a pitch Savant removes in a correction stays in silver (the Postgres pipeline replaces whole days, so it drops them). Removals are rare; `full_refresh` doesn't fix it either because bronze keeps every version.

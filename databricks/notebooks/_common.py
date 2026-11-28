@@ -16,6 +16,8 @@ dbutils.widgets.text("catalog", "workspace", "Unity Catalog catalog")
 dbutils.widgets.dropdown("source", "sample", ["sample", "savant"], "Data source")
 dbutils.widgets.text("start_date", "", "Savant start date (YYYY-MM-DD)")
 dbutils.widgets.text("end_date", "", "Savant end date (YYYY-MM-DD)")
+dbutils.widgets.text("game_types", "regular", "Savant game types: regular, postseason, spring (comma-separated)")
+dbutils.widgets.text("refresh_days", "3", "Daily runs re-pull this many trailing days")
 dbutils.widgets.dropdown("full_refresh", "false", ["false", "true"], "Rebuild silver from all of bronze")
 dbutils.widgets.text("min_pitches", "10", "Min pitches for a pitch type to appear in marts")
 

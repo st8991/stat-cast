@@ -58,5 +58,5 @@ class Names:
         return f"{self.gold_schema}.{name}"
 
 
-def landing_file_name(game_date: str) -> str:
-    return f"statcast_{game_date}.csv.gz"
+# Kept here for older imports; landing.py owns landing-zone file names now.
+from .landing import landing_file_name  # noqa: E402,F401

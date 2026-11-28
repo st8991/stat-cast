@@ -1,6 +1,6 @@
 # stat-cast
 
-A daily batch pipeline for MLB pitch-tracking data. Every morning Airflow pulls the previous day's pitch-level Statcast data from Baseball Savant, lands the raw file, loads it into Postgres, and runs dbt to rebuild tested pitcher models: arsenal, movement vs league, release consistency, and game-by-game velocity trends.
+A daily batch pipeline for MLB pitch-tracking data. Every morning in season Airflow pulls the last few days of pitch-level Statcast data from Baseball Savant (yesterday, plus a short trailing window so Savant's late corrections land), lands the raw files, loads it into Postgres, and runs dbt to rebuild tested pitcher models: arsenal, movement vs league, release consistency, and game-by-game velocity trends.
 
 The same pipeline also runs on **Databricks** as a medallion lakehouse: Auto Loader into bronze Delta, `MERGE` into silver, the dbt marts ported to Spark SQL in gold, deployed as a bundle job on serverless. See [databricks/README.md](databricks/README.md).
 
@@ -11,7 +11,9 @@ flowchart LR
     savant["Baseball Savant<br/>statcast_search/csv"]
     subgraph airflow["Airflow DAG: statcast_daily (9:00 AM CT)"]
         direction LR
-        r[resolve_game_date] --> e[extract]
+        r[resolve_dates] --> q{in_season?}
+        q -- "off-season" --> skip0((skip))
+        q -- yes --> e[extract]
         e --> s{has_pitches?}
         s -- "off day" --> skip((skip))
         s -- yes --> l[load]
@@ -53,7 +55,13 @@ docker compose exec airflow airflow backfill create --dag-id statcast_daily \
     --from-date 2025-04-01 --to-date 2025-04-07
 ```
 
-Each run loads the game date before its logical date. To load one specific day, trigger the DAG with `{"game_date": "2025-06-01"}`.
+A scheduled run loads the `STATCAST_REFRESH_DAYS` game dates (default 3) ending the day before its logical date, and skips without calling Savant when that whole window is outside the season. A backfill or manual run loads exactly the one day before its logical date, in season or not. To load one specific day, trigger the DAG with `{"game_date": "2025-06-01"}`.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `STATCAST_SOURCE` | `savant` (`sample` in `.env.example`) | `sample` replays the synthetic week offline; `savant` pulls live data |
+| `STATCAST_GAME_TYPES` | `regular` | Comma-separated: `regular`, `postseason`, `spring`. Picks Savant's game-type filter and the season window. The CLI takes `--game-types`. |
+| `STATCAST_REFRESH_DAYS` | `3` | Trailing game dates a scheduled run re-pulls. Keep it at or below dbt's `lookback_days` + 1. |
 
 ### Without Docker
 
@@ -72,22 +80,23 @@ pytest -q
 
 | Step | What it does |
 |---|---|
-| `extract.py` | One request per game date to Savant's CSV endpoint (regular season). Retries 429/5xx with exponential backoff. Savant caps a query at 25,000 rows; a full day is about 4,500 pitches, so hitting the cap means a truncated result and the task fails instead of loading a partial day. Writes `landing/game_date=YYYY-MM-DD/statcast.csv.gz` atomically. |
+| `extract.py` | One request per game date to Savant's CSV endpoint, for the game types in `STATCAST_GAME_TYPES`. Retries 429/5xx with exponential backoff. Savant caps a query at 25,000 rows; a full day is about 4,500 pitches, so hitting the cap means a truncated result and the task fails instead of loading a partial day. Writes `landing/game_date=YYYY-MM-DD/statcast.csv.gz` atomically. |
 | `transform.py` | Conforms the frame to a fixed 45-column contract (`schema.py`). Savant's CSV has 100+ columns and keeps adding more (`arm_angle` arrived in 2024): unknown columns are dropped and logged, missing ones become NULL, numbers that won't parse become NULL, rows without a full key are dropped, repeated pitches keep the last version. |
-| `load.py` | Replaces whole game dates in one transaction: `delete` the dates in the batch, then `COPY` the new rows, then write an audit row to `raw.ingestion_log`. Re-running a day or a range never double counts, and a failed load leaves the previous version in place. |
+| `season.py` | Game-type codes, generous calendar windows for each game type (spring, regular, postseason), and the trailing refresh window. Shared with the Databricks pipeline. |
+| `load.py` | Replaces whole game dates in one transaction (a daily run's whole refresh window together): `delete` the dates in the batch, then `COPY` the new rows, then write an audit row to `raw.ingestion_log`. Re-running a day or a range never double counts, and a failed load leaves the previous version in place. |
 
 The full original CSV stays in the landing zone, so adding a column to the contract later is a reload from disk, not a re-download.
 
 ### Orchestrate (`dags/statcast_daily.py`)
 
-Airflow 3 TaskFlow DAG. `has_pitches` short-circuits on off days so load and dbt are skipped, not failed. Tasks retry with exponential backoff, `max_active_runs=3` keeps backfills polite to Savant, and dbt runs from its own virtualenv in the image because its dependency pins conflict with Airflow's.
+Airflow 3 TaskFlow DAG. `in_season` short-circuits scheduled runs in the off-season before anything calls Savant, and `has_pitches` short-circuits on off days, so load and dbt are skipped, not failed. Scheduled runs re-pull a trailing window because Savant revises pitch types and run values for a day or two after a game; reloading those days in raw is what lets `fct_pitches`' lookback actually pick the corrections up. Tasks retry with exponential backoff, `max_active_runs=3` keeps backfills polite to Savant, and dbt runs from its own virtualenv in the image because its dependency pins conflict with Airflow's.
 
 ### Model (`dbt/`)
 
 | Model | Grain | What's in it |
 |---|---|---|
 | `stg_statcast__pitches` | pitch | Renamed columns; movement in inches; **arm-side break** (horizontal break flipped for lefties, so positive always means arm-side run); outcome flags (`is_swing`, `is_whiff`, `is_csw`, `is_chase`, `is_in_zone`); run value from the pitcher's side. |
-| `fct_pitches` | pitch | Incremental (`delete+insert` on `pitch_id`). Each run re-processes the last 3 game dates, because Savant revises pitch types and run values after the fact. |
+| `fct_pitches` | pitch | Incremental (`delete+insert` on `pitch_id`). Each run re-processes the last 3 game dates, which covers the days the DAG just re-pulled, so Savant's corrections replace the old rows. |
 | `dim_pitchers` | pitcher | Latest name, hand and team, first/last game, workload. |
 | `mart_pitcher_arsenal` | season × pitcher × pitch type | Usage, velo, spin, IVB, arm-side break, extension, whiff%, CSW%, zone%, chase%, xwOBA on contact, run value per 100. |
 | `mart_pitch_movement` | season × pitcher × pitch type | Velo and movement minus the league average for the same pitch type, hand and season, plus z-scores ("this four-seamer has +4 in of ride"). |
@@ -123,7 +132,7 @@ docker-compose.yml, Dockerfile   local Postgres + Airflow 3 stack
 
 ## Known limits and next steps
 
-- **Savant rate limits.** One request per day per run is gentle, but a full-season backfill is ~190 requests; keep `max_active_runs` low.
-- **Regular season only.** Postseason and spring training are a parameter change in `extract.GAME_TYPES`.
+- **Savant rate limits.** A daily run makes `STATCAST_REFRESH_DAYS` requests (3 by default), which is gentle; a full-season backfill is ~190 requests (backfills don't re-pull trailing days), so keep `max_active_runs` low.
+- **Season windows are calendar approximations.** They lean wide (regular season Mar 15 to Oct 5, postseason Sep 28 to Nov 10, spring Feb 15 to Mar 31) and only gate scheduled runs. Adjust `season.SEASON_WINDOWS` if MLB's calendar moves.
 - **Statcast data belongs to MLB.** Use it for personal research; don't redistribute pulled data.
 - Natural next steps: partition `raw.statcast_pitches` by season, add batter-side marts (swing decisions, bat tracking), publish dbt docs, and point PitchScout's data layer at this warehouse.

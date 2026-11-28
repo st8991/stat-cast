@@ -88,3 +88,14 @@ def load_landed_file(conn: psycopg.Connection, path: Path, source: str) -> int:
 
     df = conform(pd.read_csv(path, low_memory=False))
     return load_frame(conn, df, source=source)
+
+
+def load_landed_files(conn: psycopg.Connection, paths: list[Path], source: str) -> int:
+    """Load several landed days in one transaction, so a refresh window lands all or nothing."""
+    from .transform import conform
+
+    frames = [conform(pd.read_csv(p, low_memory=False)) for p in paths]
+    frames = [f for f in frames if not f.empty]
+    if not frames:
+        return 0
+    return load_frame(conn, pd.concat(frames, ignore_index=True), source=source)
