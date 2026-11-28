@@ -3,6 +3,7 @@ name = "statcast-pipeline"
 version = "0.1.0"
 description = "Daily Statcast pipeline: Baseball Savant -> Postgres -> dbt on Airflow, and a Delta lakehouse on Databricks"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -17,3 +17,5 @@ node_modules/
 .env.local
 .env.*
 !.env.example
+.dev.vars*
+!.dev.vars.example
