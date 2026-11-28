@@ -57,7 +57,23 @@ The warehouse is the Neon project linked in the repo root (`neon.ts`, `.neon`; p
    (With the read-only role, use `postgres://statcast_web:<password>@<direct host>/neondb` instead.) Paste the printed id into `wrangler.jsonc` (`hyperdrive[0].id`).
 5. **Deploy.** `npm run deploy` (or `make deploy` from the root). The site goes to `https://stat-cast.<your-subdomain>.workers.dev`; add a custom domain in the dashboard if you want one.
 
-To deploy from GitHub on every push to main, add repository secrets `CLOUDFLARE_API_TOKEN` (an API token with *Workers Scripts: Edit*) and `CLOUDFLARE_ACCOUNT_ID`. The `deploy web` workflow skips until both exist.
+### Workers Builds (how production deploys)
+
+The site is deployed by Cloudflare Workers Builds from this repo and served at **https://statcast.tuckers.solutions** (`routes` in `wrangler.jsonc`; the zone `tuckers.solutions` is on the same Cloudflare account). Hyperdrive config `stat-cast` (`0ed507c6291344b0a256c380caf801dc`) fronts the Neon database. Workers Builds settings:
+
+| Setting | Value |
+|---|---|
+| Worker name | `stat-cast` (must match `name` in `wrangler.jsonc`) |
+| Production branch | `main` |
+| Root directory | `web` |
+| Build command | `npm run cf:build` |
+| Deploy command | `npx opennextjs-cloudflare deploy` |
+| Non-production branch deploy command | `npx wrangler versions upload` (preview URLs per branch) |
+| Build variables | `NODE_VERSION` = `22` |
+
+No secrets are needed at build time: the database credentials live in the Hyperdrive config, and Workers Builds supplies its own API token for the deploy. Every push to `main` that touches the repo redeploys.
+
+The `deploy web` GitHub workflow is an alternative path for deploying from Actions. It stays idle until `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist, so leave those unset while Workers Builds does the deploys.
 
 ### The pipeline panel on Cloudflare
 

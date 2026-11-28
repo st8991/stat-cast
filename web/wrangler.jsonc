@@ -9,13 +9,16 @@
     "binding": "ASSETS"
   },
   "observability": { "enabled": true },
+  // Served at statcast.tuckers.solutions (zone tuckers.solutions is on this account);
+  // the workers.dev URL stays on for previews.
+  "workers_dev": true,
+  "routes": [{ "pattern": "statcast.tuckers.solutions", "custom_domain": true }],
   "hyperdrive": [
     {
-      // The warehouse: the Neon project the pipeline loads into. Create with
-      //   npx wrangler hyperdrive create stat-cast-warehouse --connection-string="<Neon direct URL>"
-      // and paste the id it prints here. See web/README.md.
+      // The warehouse: Hyperdrive config "stat-cast" in front of the Neon project
+      // the pipeline loads into (created in the Cloudflare dashboard).
       "binding": "HYPERDRIVE",
-      "id": "00000000000000000000000000000000",
+      "id": "0ed507c6291344b0a256c380caf801dc",
       // Used by `wrangler dev` / `npm run preview`: the Docker Compose warehouse.
       "localConnectionString": "postgres://statcast:statcast@localhost:5432/statcast"
     }
