@@ -128,7 +128,10 @@ def statcast_daily():
 
     dbt_build = BashOperator(
         task_id="dbt_build",
+        # dbt only reads WAREHOUSE_*; resolve them the way the loader does (a Neon
+        # DATABASE_URL_UNPOOLED included) so both write to the same database.
         bash_command=(
+            'eval "$(python -m statcast_pipeline warehouse-env)" && '
             f"{DBT_BIN} build --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROJECT_DIR} "
             "--target-path /tmp/dbt-target --log-path /tmp/dbt-logs"
         ),

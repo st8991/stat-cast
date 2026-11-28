@@ -38,8 +38,36 @@ jobs:
         run: dbt build --project-dir dbt
       - name: dbt build again (incremental path)
         run: dbt build --project-dir dbt --select fct_pitches+
-      - name: Dashboard API against the built marts
-        run: pytest -q tests/test_dashboard.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web app queries and API routes against the built marts
+        working-directory: web
+        run: npm ci && npm test
+
+  web:
+    name: web app (typecheck, unit tests, Cloudflare build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - name: unit tests (warehouse tests skip without a database)
+        run: npm test
+      - name: OpenNext build for Workers
+        run: npx opennextjs-cloudflare build
 
   dag:
     name: Airflow DAG integrity

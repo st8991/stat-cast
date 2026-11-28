@@ -1,5 +1,4 @@
 -r requirements.txt
 -r requirements-dbt.txt
--r requirements-dashboard.txt
 pytest>=8
 ruff>=0.6

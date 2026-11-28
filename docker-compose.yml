@@ -1,9 +1,9 @@
 # Local stack: one Postgres (Airflow metadata + the "statcast" warehouse),
 # Airflow 3 in standalone mode (API server, scheduler, DAG processor, triggerer),
-# and the stat-cast dashboard.
+# and the stat-cast web app (Next.js, the same build that runs on Cloudflare).
 #
 #   docker compose up -d --build        then open http://localhost:8080 (Airflow)
-#                                        and http://localhost:8050 (dashboard)
+#                                        and http://localhost:3000 (web app)
 #
 # Defaults to the offline synthetic sample. Set STATCAST_SOURCE=savant in .env
 # to pull live data from Baseball Savant.
@@ -16,11 +16,15 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "True"
   # Local development only: every visitor is an admin, no login screen.
   AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
-  WAREHOUSE_HOST: postgres
-  WAREHOUSE_PORT: "5432"
-  WAREHOUSE_DB: statcast
-  WAREHOUSE_USER: statcast
-  WAREHOUSE_PASSWORD: statcast
+  # Defaults to the warehouse in this stack. A DATABASE_URL_UNPOOLED from Neon (see
+  # env_file below) or WAREHOUSE_* in .env point the pipeline at a managed Postgres,
+  # the database the Cloudflare site reads through Hyperdrive.
+  WAREHOUSE_HOST: ${WAREHOUSE_HOST:-postgres}
+  WAREHOUSE_PORT: ${WAREHOUSE_PORT:-5432}
+  WAREHOUSE_DB: ${WAREHOUSE_DB:-statcast}
+  WAREHOUSE_USER: ${WAREHOUSE_USER:-statcast}
+  WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-statcast}
+  WAREHOUSE_SSLMODE: ${WAREHOUSE_SSLMODE:-prefer}
   STATCAST_SOURCE: ${STATCAST_SOURCE:-sample}
   STATCAST_LANDING_DIR: /opt/airflow/landing
   STATCAST_SAMPLE_FILE: /opt/airflow/sample/statcast_sample.csv.gz
@@ -45,6 +49,14 @@ services:
   airflow:
     build: .
     command: standalone
+    # Neon: `neon env pull` writes DATABASE_URL / DATABASE_URL_UNPOOLED to one of
+    # these. When present, the loader and dbt use the direct URL and the web app
+    # the pooled one, instead of the Postgres container.
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     environment: *airflow-env
     volumes:
       - ./dags:/opt/airflow/dags:ro
@@ -58,22 +70,26 @@ services:
       postgres:
         condition: service_healthy
 
-  dashboard:
-    build:
-      context: .
-      dockerfile: docker/dashboard.Dockerfile
+  web:
+    build: ./web
+    # Neon: `neon env pull` writes DATABASE_URL / DATABASE_URL_UNPOOLED to one of
+    # these. When present, the loader and dbt use the direct URL and the web app
+    # the pooled one, instead of the Postgres container.
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
     environment:
-      WAREHOUSE_HOST: postgres
-      WAREHOUSE_PORT: "5432"
-      WAREHOUSE_DB: statcast
-      WAREHOUSE_USER: statcast
-      WAREHOUSE_PASSWORD: statcast
+      WAREHOUSE_HOST: ${WAREHOUSE_HOST:-postgres}
+      WAREHOUSE_PORT: ${WAREHOUSE_PORT:-5432}
+      WAREHOUSE_DB: ${WAREHOUSE_DB:-statcast}
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-statcast}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-statcast}
       # Read-only view of the latest DAG runs, straight from Airflow's metadata DB.
-      AIRFLOW_DB_DSN: host=postgres port=5432 dbname=airflow user=airflow password=airflow
-    volumes:
-      - ./src:/app/src:ro
+      AIRFLOW_DATABASE_URL: postgres://airflow:airflow@postgres:5432/airflow
     ports:
-      - "8050:8050"
+      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
