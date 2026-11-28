@@ -167,3 +167,9 @@ docker-compose.yml, Dockerfile   local Postgres + Airflow 3 + web app stack
 - **Season windows are calendar approximations.** They lean wide (regular season Mar 15 to Oct 5, postseason Sep 28 to Nov 10, spring Feb 15 to Mar 31) and only gate scheduled runs. Adjust `season.SEASON_WINDOWS` if MLB's calendar moves.
 - **Statcast data belongs to MLB.** Use it for personal research; don't redistribute pulled data.
 - Natural next steps: partition `raw.statcast_pitches` by season, add batter-side marts (swing decisions, bat tracking), publish dbt docs, and point PitchScout's data layer at this warehouse.
+
+## License
+
+Copyright © 2025-2026 Sam Tucker. All rights reserved.
+
+This code is public so it can be read as a portfolio piece, not so it can be reused. You're welcome to browse it, but copying, modifying, redistributing, or deploying any part of it needs my written permission. See [LICENSE](LICENSE), and open an issue if you'd like to ask.
