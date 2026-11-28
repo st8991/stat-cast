@@ -9,5 +9,6 @@ statcast:
       dbname: "{{ env_var('WAREHOUSE_DB', 'statcast') }}"
       user: "{{ env_var('WAREHOUSE_USER', 'statcast') }}"
       password: "{{ env_var('WAREHOUSE_PASSWORD', 'statcast') }}"
+      sslmode: "{{ env_var('WAREHOUSE_SSLMODE', 'prefer') }}"
       schema: analytics
       threads: 4

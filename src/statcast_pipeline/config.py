@@ -16,6 +16,8 @@ class Settings:
     warehouse_db: str = os.getenv("WAREHOUSE_DB", "statcast")
     warehouse_user: str = os.getenv("WAREHOUSE_USER", "statcast")
     warehouse_password: str = os.getenv("WAREHOUSE_PASSWORD", "statcast")
+    # "require" for a managed Postgres (Neon, Supabase, RDS); "prefer" is fine for Docker.
+    warehouse_sslmode: str = os.getenv("WAREHOUSE_SSLMODE", "prefer")
     # "savant" pulls live data; "sample" replays the synthetic fixture offline.
     source: str = os.getenv("STATCAST_SOURCE", "savant")
     # Comma-separated: any of "regular", "postseason", "spring".
@@ -32,7 +34,7 @@ class Settings:
     def dsn(self) -> str:
         return (
             f"host={self.warehouse_host} port={self.warehouse_port} dbname={self.warehouse_db} "
-            f"user={self.warehouse_user} password={self.warehouse_password}"
+            f"user={self.warehouse_user} password={self.warehouse_password} sslmode={self.warehouse_sslmode}"
         )
 
 

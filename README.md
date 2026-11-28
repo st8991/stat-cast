@@ -48,7 +48,7 @@ from marts.mart_pitcher_arsenal
 order by pitcher_name, usage_pct desc;
 ```
 
-Then open the dashboard at **http://localhost:8050**.
+Then open the dashboard at **http://localhost:3000**.
 
 To pull real data, set `STATCAST_SOURCE=savant` in `.env` (copy `.env.example`), restart, and unpause `statcast_daily` in the UI, or backfill a range:
 
@@ -64,6 +64,8 @@ A scheduled run loads the `STATCAST_REFRESH_DAYS` game dates (default 3) ending 
 | `STATCAST_SOURCE` | `savant` (`sample` in `.env.example`) | `sample` replays the synthetic week offline; `savant` pulls live data |
 | `STATCAST_GAME_TYPES` | `regular` | Comma-separated: `regular`, `postseason`, `spring`. Picks Savant's game-type filter and the season window. The CLI takes `--game-types`. |
 | `STATCAST_REFRESH_DAYS` | `3` | Trailing game dates a scheduled run re-pulls. Keep it at or below dbt's `lookback_days` + 1. |
+| `WAREHOUSE_HOST`, `_PORT`, `_DB`, `_USER`, `_PASSWORD` | the Compose Postgres | Where the loader and dbt write. Point them at a managed Postgres to feed the Cloudflare site. |
+| `WAREHOUSE_SSLMODE` | `prefer` | Set `require` for a managed Postgres. |
 
 ### Without Docker
 
@@ -80,7 +82,7 @@ pytest -q
 
 ![stat-cast dashboard](docs/dashboard/dashboard-dark.png)
 
-One screen over the warehouse and the pipeline that feeds it (`src/statcast_dashboard/`):
+One screen over the warehouse and the pipeline that feeds it (`web/`):
 
 - **Pitchers**: searchable roster with a fastball-velo sparkline per pitcher and a flag on anyone with a velo drop.
 - **Pitch movement**: every pitch by induced vertical break and arm-side break, with each pitch type's average linked to the league average for the same type and hand (`mart_pitch_movement`).
@@ -90,14 +92,15 @@ One screen over the warehouse and the pipeline that feeds it (`src/statcast_dash
 - **Pipeline**: the last 14 `statcast_daily` runs task by task (off days show as skipped), time since the last load against the 36 h freshness threshold, pitches landed per game date and row counts for every table.
 - **Velo alerts** and **league leaders** (velo, ride, whiff, tightest release). Click any name to open that pitcher.
 
-It's a small read-only FastAPI app plus a buildless HTML/SVG frontend; there's nothing to compile. It reads the warehouse with the same `WAREHOUSE_*` settings as the loader. DAG runs come straight from Airflow's metadata database when `AIRFLOW_DB_DSN` is set (Docker Compose sets it); without it the pipeline panel still shows the warehouse side.
+It's a Next.js + TypeScript app in [`web/`](web/README.md): a React UI with hand-drawn SVG charts and read-only API routes that query the marts. It deploys to **Cloudflare Workers** (via OpenNext) and reads a managed Postgres through **Hyperdrive**; locally it reads the warehouse with the same `WAREHOUSE_*` settings as the loader. DAG runs come straight from Airflow's metadata database when `AIRFLOW_DATABASE_URL` (or the `AIRFLOW_HYPERDRIVE` binding) is set; without it the pipeline panel still shows the warehouse side. Light and dark themes follow the OS, with a toggle in the top bar.
 
 ```bash
-make dashboard            # against WAREHOUSE_* from your shell, http://localhost:8050
-make dashboard-export     # dist/dashboard: the frontend + a JSON snapshot, for static hosting
+make web                  # next dev against WAREHOUSE_* from your shell, http://localhost:3000
+make web-test             # typecheck + vitest
+make deploy               # OpenNext build + deploy to Cloudflare (setup steps in web/README.md)
 ```
 
-The export writes the same `api/*.json` paths the live app serves, so the snapshot can go on GitHub Pages or any file host and look exactly like the live app did. Light and dark themes follow the OS, with a toggle in the top bar.
+To put it on Cloudflare, point the pipeline at a managed Postgres (`WAREHOUSE_HOST`, `WAREHOUSE_SSLMODE=require`, ... in `.env`), create a Hyperdrive config for it and deploy. [`web/README.md`](web/README.md) has the steps.
 
 ## How it works
 
@@ -132,7 +135,7 @@ Tests: `unique`/`not_null`/`accepted_values`/`relationships` on keys, a **dbt un
 
 ### Tests and CI
 
-`pytest` covers the transform contract, retry and truncation logic, off-day handling, load idempotency against a real Postgres (each test runs in a throwaway schema; skipped when no database is reachable), and DAG integrity (no import errors, expected task graph, retries on every task). GitHub Actions runs ruff, pytest, the sample backfill and `dbt build` twice (full, then incremental) against a Postgres service, plus the DAG checks in a separate Airflow job and the Databricks transforms on PySpark 3.5 and 4.0.
+`pytest` covers the transform contract, retry and truncation logic, off-day handling, load idempotency against a real Postgres (each test runs in a throwaway schema; skipped when no database is reachable), and DAG integrity (no import errors, expected task graph, retries on every task). GitHub Actions runs ruff, pytest, the web app's typecheck, vitest and Workers build, the sample backfill and `dbt build` twice (full, then incremental) against a Postgres service, plus the DAG checks in a separate Airflow job and the Databricks transforms on PySpark 3.5 and 4.0.
 
 ## The sample data is synthetic
 
@@ -151,8 +154,8 @@ scripts/make_sample.py           synthetic sample generator
 tests/                           pytest suites (tests/lakehouse: PySpark)
 databricks.yml, databricks/      Databricks bundle, job and notebooks
 src/statcast_lakehouse/          bronze, silver, gold and checks for Databricks
-src/statcast_dashboard/          dashboard API, static export and frontend (static/)
-docker-compose.yml, Dockerfile   local Postgres + Airflow 3 + dashboard stack
+web/                             dashboard: Next.js + TypeScript on Cloudflare Workers
+docker-compose.yml, Dockerfile   local Postgres + Airflow 3 + web app stack
 .github/workflows/ci.yml         lint, tests, dbt build, DAG checks, Spark tests
 ```
 

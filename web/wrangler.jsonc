@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stat-cast",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": { "enabled": true },
+  "hyperdrive": [
+    {
+      // The warehouse (managed Postgres the pipeline loads into). Create with:
+      //   npx wrangler hyperdrive create stat-cast-warehouse --connection-string="postgres://..."
+      // and paste the id it prints here. See web/README.md.
+      "binding": "HYPERDRIVE",
+      "id": "00000000000000000000000000000000",
+      // Used by `wrangler dev` / `npm run preview`: the Docker Compose warehouse.
+      "localConnectionString": "postgres://statcast:statcast@localhost:5432/statcast"
+    }
+    // Optional: Airflow's metadata DB, for the DAG run grid in the pipeline panel.
+    // { "binding": "AIRFLOW_HYPERDRIVE", "id": "<id>", "localConnectionString": "postgres://airflow:airflow@localhost:5432/airflow" }
+  ]
+}

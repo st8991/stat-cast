@@ -1,4 +1,4 @@
-.PHONY: up down logs backfill psql sample test dbt lint dashboard dashboard-export
+.PHONY: up down logs backfill psql sample test dbt lint web web-test deploy
 
 up:            ## start Postgres + Airflow at http://localhost:8080
 	docker compose up -d --build
@@ -29,8 +29,11 @@ dbt:           ## dbt build against WAREHOUSE_* from your shell
 lint:
 	ruff check .
 
-dashboard:     ## run the dashboard against WAREHOUSE_* from your shell, http://localhost:8050
-	PYTHONPATH=src uvicorn statcast_dashboard.app:app --reload --port 8050
+web:           ## run the web app (Next.js) against WAREHOUSE_* from your shell, http://localhost:3000
+	cd web && npm install && npm run dev
 
-dashboard-export: ## write the dashboard + a JSON snapshot of the warehouse to dist/dashboard (static hosting)
-	PYTHONPATH=src python -m statcast_dashboard.export --out dist/dashboard
+web-test:      ## typecheck + vitest for the web app (warehouse tests run if WAREHOUSE_* reaches built marts)
+	cd web && npm run lint && npm test
+
+deploy:        ## build with OpenNext and deploy to Cloudflare Workers (needs wrangler login + Hyperdrive id)
+	cd web && npm run deploy
