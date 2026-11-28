@@ -1,0 +1,151 @@
+name: neon preview branch
+
+# Gives every pull request its own Neon branch, a copy-on-write clone of the
+# `production` branch, and runs the loader and dbt against it, so a PR is tested
+# on the real Neon Postgres (and production's data) without touching production.
+# The branch is deleted when the PR closes, and expires after 14 days anyway.
+#
+# Needs the repository secret NEON_API_KEY and the repository variable
+# NEON_PROJECT_ID; skips cleanly until both exist. Pull requests from forks get
+# no secrets, so they skip too. See "Preview databases" in README.md.
+#
+# Not meant to be a required check: it depends on Neon being up and on the
+# project's branch quota.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  contents: read
+
+# One run per PR at a time; a close waits for a running build instead of
+# racing it, so the branch can't be recreated after it was deleted.
+concurrency:
+  group: neon-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+  NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+  # Named by PR number only: the head branch name is attacker-controlled text,
+  # and the number is enough to find the branch again on close.
+  NEON_BRANCH: preview/pr-${{ github.event.pull_request.number }}
+
+jobs:
+  preview:
+    name: loader + dbt on a Neon preview branch
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STATCAST_SOURCE: sample
+      DBT_PROFILES_DIR: dbt
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Check Neon settings
+        id: cfg
+        run: |
+          if [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; then
+            echo "::notice::NEON_API_KEY secret or NEON_PROJECT_ID variable not set (or this is a fork PR); skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "expires_at=$(date -u --date '+14 days' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Returns the existing branch on later pushes, so data and dbt's
+      # incremental state carry over between runs of the same PR.
+      - name: Create or reuse the Neon branch
+        id: neon
+        if: steps.cfg.outputs.ready == 'true'
+        uses: neondatabase/create-branch-action@72ed4f69a12b6be9c16aebfad893f6a21e9aba8b # v6.4.0
+        with:
+          api_key: ${{ secrets.NEON_API_KEY }}
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: ${{ env.NEON_BRANCH }}
+          parent_branch: production
+          expires_at: ${{ steps.cfg.outputs.expires_at }}
+
+      # The action doesn't mask what it returns. Mask the password and both
+      # URLs before anything else can print them.
+      - name: Mask the branch credentials
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          PW: ${{ steps.neon.outputs.password }}
+          URL: ${{ steps.neon.outputs.db_url }}
+          URL_POOLED: ${{ steps.neon.outputs.db_url_pooled }}
+        run: |
+          for v in "$PW" "$URL" "$URL_POOLED"; do
+            [ -n "$v" ] && echo "::add-mask::$v"
+          done
+          echo "Neon branch $NEON_BRANCH (id ${{ steps.neon.outputs.branch_id }}, created: ${{ steps.neon.outputs.created }})"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - if: steps.cfg.outputs.ready == 'true'
+        run: pip install -r requirements-dev.txt
+
+      # Replaces whole game dates, so re-running is safe. On the branch only,
+      # it overwrites those dates with the synthetic sample week.
+      - name: Load the sample week into the branch
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          DATABASE_URL_UNPOOLED: ${{ steps.neon.outputs.db_url }}
+        run: PYTHONPATH=src python -m statcast_pipeline backfill --start 2025-06-02 --end 2025-06-09
+
+      - name: dbt build (models, unit tests, data tests) on the branch
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          DATABASE_URL_UNPOOLED: ${{ steps.neon.outputs.db_url }}
+        run: |
+          eval "$(PYTHONPATH=src python -m statcast_pipeline warehouse-env)"
+          dbt build --project-dir dbt
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The same pooled URL the Cloudflare Worker's Hyperdrive would use.
+      - name: Web app queries and API routes against the branch
+        if: steps.cfg.outputs.ready == 'true'
+        working-directory: web
+        env:
+          DATABASE_URL: ${{ steps.neon.outputs.db_url_pooled }}
+        run: npm ci && npm test
+
+  cleanup:
+    name: delete the Neon preview branch
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Plain calls to the Neon API, so no third-party code sees the key.
+      - name: Delete the branch
+        run: |
+          if [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; then
+            echo "::notice::NEON_API_KEY secret or NEON_PROJECT_ID variable not set (or this is a fork PR); nothing to delete."
+            exit 0
+          fi
+          api="https://console.neon.tech/api/v2/projects/$NEON_PROJECT_ID/branches"
+          auth="Authorization: Bearer $NEON_API_KEY"
+          id=$(curl -fsS --retry 3 -H "$auth" -H "Accept: application/json" "$api" \
+            | jq -r --arg n "$NEON_BRANCH" '.branches[] | select(.name == $n) | .id')
+          if [ -z "$id" ]; then
+            echo "No Neon branch named $NEON_BRANCH (never created, or already expired)."
+            exit 0
+          fi
+          curl -fsS --retry 3 -X DELETE -H "$auth" -H "Accept: application/json" "$api/$id" > /dev/null
+          echo "Deleted Neon branch $NEON_BRANCH ($id)."

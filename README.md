@@ -103,6 +103,12 @@ make deploy               # OpenNext build + deploy to Cloudflare (setup steps i
 
 The production warehouse is a Neon project linked from the repo root (`neon.ts`). `neon env pull` writes its URLs to `.env.local`, and the pipeline, Compose and `npm run dev` all pick them up from there. Then create a Hyperdrive config for it and deploy. [`web/README.md`](web/README.md) has the steps.
 
+### Preview databases for pull requests
+
+`.github/workflows/neon-preview.yml` gives each pull request its own Neon branch, `preview/pr-<number>`, cloned from `production`. It loads the sample week into the branch, runs `dbt build`, and runs the web app's warehouse tests on the branch's pooled URL, so a change is tried on the real Neon Postgres and a copy of production's data without touching production. Later pushes reuse the branch; closing the PR deletes it, and every branch expires after 14 days in case a delete is missed. Connection strings are masked in the logs and never leave the job.
+
+It needs the repository secret `NEON_API_KEY` and the repository variable `NEON_PROJECT_ID` (Settings → Secrets and variables → Actions), and skips with a notice until both exist. Pull requests from forks get no secrets, so they skip too. It isn't a required check: it depends on Neon being up and on the project's branch limit.
+
 ## How it works
 
 ### Ingest (`src/statcast_pipeline/`)
